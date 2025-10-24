@@ -1,25 +1,15 @@
-NaiveBayes (Infer.NET) - README
+NaiveBayes (Infer.NET) - Semi-Supervised Bayesian Naive Bayes
 
 Overview
 --------
-This project implements a simple Bernoulli Naive Bayes classifier using Infer.NET for probabilistic inference. It supports:
+This project implements a simple Semi-Supervised Bernoulli Naive Bayes classifier using Infer.NET for probabilistic inference. It supports:
 
 - Training a model from a CSV file containing binary features and (optional) labels.
 - Semi-supervised learning: training data may contain unlabeled instances; the model can infer labels for those during training and optionally save posteriors.
 - Saving a JSON representation of the learned model (feature Beta posteriors and class Dirichlet means).
 - Loading a saved model and predicting unlabeled instances from a CSV without re-running inference.
 
-This is a minimal, educational implementation — not a production-ready ML pipeline.
-
-Contents
---------
-- `Program.cs` - CLI entrypoint (verbs: `train`, `predict`).
-- `TrainCommand.cs` - `train` verb implementation.
-- `PredictCommand.cs` - `predict` verb implementation.
-- `NaiveBayesModel.cs` - Core Infer.NET model wiring and inference.
-- `DataLoader.cs` - CSV loading helper.
-- `ModelSerializer.cs` - Save/load model to/from JSON.
-- `Predictor.cs` - Helper to compute class probabilities from saved model.
+This is a minimal, educational implementation.
 
 How to build
 ------------
@@ -109,6 +99,3 @@ Assumptions and limitations
 - Features are modeled as Bernoulli (binary). Continuous or categorical features are not supported.
 - Labels are binary (0/1) only.
 - The implementation stores Beta "posteriors" for features; when serializing the model the loader reconstructs Beta point-mass distributions from stored alpha/beta (or mean fallback). This loses uncertainty compared to keeping full Infer.NET objects.
-- The CSV loader is simplistic: it splits on commas and doesn't handle quoted fields or embedded commas.
-- There is no data validation for feature count consistency across files — ensure `input.csv` has the same number of feature columns as the training data.
-- No feature or label normalization, missing value imputation, or feature selection is provided.
