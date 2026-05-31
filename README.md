@@ -1,101 +1,144 @@
-NaiveBayes (Infer.NET) - Semi-Supervised Bayesian Naive Bayes
+# NaiveBayes (Infer.NET) — Semi-Supervised Bayesian Naive Bayes
 
-Overview
---------
-This project implements a simple Semi-Supervised Bernoulli Naive Bayes classifier using Infer.NET for probabilistic inference. It supports:
+A minimal, educational semi-supervised Bernoulli Naive Bayes classifier using Infer.NET for
+probabilistic inference.
 
-- Training a model from a CSV file containing binary features and (optional) labels.
-- Semi-supervised learning: training data may contain unlabeled instances; the model can infer labels for those during training and optionally save posteriors.
-- Saving a JSON representation of the learned model (feature Beta posteriors and class Dirichlet means).
-- Loading a saved model and predicting unlabeled instances from a CSV without re-running inference.
+- Trains from a CSV with binary features and optional labels.
+- Supports semi-supervised learning: unlabeled instances have their labels inferred during training.
+- Saves a JSON model (Beta posteriors per feature-class, Dirichlet class means).
+- Predicts from a saved model without re-running inference.
 
-This is a minimal, educational implementation.
+## Build
 
-How to build
-------------
-Requires .NET SDK (6.0/7.0/8.0). From repository root:
+Requires .NET SDK 6+. From the repository root:
 
 ```bash
 dotnet build
 ```
 
-Basic usage (CLI)
------------------
+## Usage
+
 The CLI has two verbs: `train` and `predict`.
 
-Train
-~~~~~
-Train a model from a CSV and save a JSON model file.
-
-Usage:
+### Train
 
 ```bash
 dotnet run -- train --train <training.csv> [--out-model <model.json>] [--predict-unlabeled <unlabeled_out.csv>] [--verbose]
 ```
 
-Example:
-
-```bash
-dotnet run -- train --train train.csv --out-model model.json --predict-unlabeled unlabeled_posteriors.csv --verbose
-```
-
 Outputs:
-- `model.json` (default) — JSON dump describing feature posteriors and class probabilities.
-- If `--predict-unlabeled` is supplied, a CSV with per-instance posteriors for unlabeled training items is written.
+- `model.json` (default) — learned model as JSON.
+- `--predict-unlabeled <file>` — per-instance posteriors for unlabeled training rows.
 
-Predict
-~~~~~~~
-Load a saved model and predict for unlabeled instances in a CSV.
-
-Usage:
+### Predict
 
 ```bash
 dotnet run -- predict --model <model.json> --input <input.csv> --output <predictions.csv> [--verbose]
 ```
 
-Example:
+Output CSV columns: `instance` (0-based row index), `p0`, `p1`, `predicted`.
 
-```bash
-dotnet run -- predict --model model.json --input sample.csv --output sample_preds.csv --verbose
-```
+## CSV format
 
-Output format (`predictions.csv`):
-- `instance` — zero-based row index in the input CSV (excluding header)
-- `p0` — posterior probability of class 0
-- `p1` — posterior probability of class 1
-- `predicted` — predicted class (0 or 1)
+A header row is required (the loader skips it). Each data row contains binary feature columns
+(`0`/`1` or `false`/`true`) followed by a label column (`0`, `1`, or empty for unlabeled).
 
-Preparing CSV data
-------------------
-DataLoader expects CSV files with a header row (the loader currently skips the first line). Each subsequent row must contain N feature columns followed by one label column. Features must be binary values (either `1`/`0` or `true`/`false`), and labels must be `0` or `1`. For unlabeled instances, leave the label column empty.
-
-Training CSV example (3 features):
+Example (3 features, mixed labeled and unlabeled rows):
 
 ```
 f1,f2,f3,label
 1,0,1,1
 0,1,0,0
-1,1,0,1
+1,1,0,
+0,0,1,
 ```
 
-Unlabeled sample CSV example (same features, unlabeled rows):
+## Model JSON
 
-```
-f1,f2,f3,label
-1,0,1,
-0,1,0,
-```
+`model.json` stores learned Beta parameters (alpha/beta per class per feature) and class
+probability means. The `PredictCommand` reconstructs Beta point-mass approximations from these
+for prediction, which loses the full posterior uncertainty.
 
-Notes:
-- The number of feature columns in `sample.csv` (prediction) must match what the model was trained on.
-- The loader currently skips the first line; include a header even if it is a placeholder.
+## Assumptions and limitations
 
-Model JSON format
------------------
-`model.json` contains a compact representation of learned Beta parameters (per class, per feature) and class means. The `ModelSerializer` writes a JSON object which the `PredictCommand` can read to construct Beta point-mass approximations and class means used for prediction.
-
-Assumptions and limitations
----------------------------
-- Features are modeled as Bernoulli (binary). Continuous or categorical features are not supported.
+- Features must be binary (Bernoulli). Continuous or categorical features are not supported.
 - Labels are binary (0/1) only.
-- The implementation stores Beta "posteriors" for features; when serializing the model the loader reconstructs Beta point-mass distributions from stored alpha/beta (or mean fallback). This loses uncertainty compared to keeping full Infer.NET objects.
+
+## Generative story
+
+The full probabilistic model from priors through latent variables to observed data.
+
+### Notation
+
+| Symbol | Meaning |
+|--------|---------|
+| $N$ | number of instances |
+| $F$ | number of features |
+| $C = 2$ | number of classes |
+| $i \in \{0 \ldots N-1\}$ | instance index |
+| $f \in \{0 \ldots F-1\}$ | feature index |
+| $c \in \{0, 1\}$ | class index |
+
+### Hyperparameters (fixed)
+
+| Symbol | Default | Meaning |
+|--------|---------|---------|
+| $\alpha_f$ | 1.0 | Beta prior pseudocount for feature = true |
+| $\beta_f$ | 1.0 | Beta prior pseudocount for feature = false |
+| $\alpha_c$ | 1.0 | Symmetric Dirichlet concentration for class probabilities |
+
+All defaults are uninformative (uniform).
+
+### Global latent variables
+
+**Class probability vector** — shared across all instances:
+
+$$\boldsymbol{\pi} \sim \mathrm{Dirichlet}([\alpha_c, \alpha_c])$$
+
+With $\alpha_c = 1$ the prior is uniform over the 2-simplex.
+
+**Per-class, per-feature Bernoulli rate** — one independent draw for every $(c, f)$ pair:
+
+$$\theta_{c,f} \sim \mathrm{Beta}(\alpha_f,\, \beta_f) \quad \forall\; c,\, f$$
+
+$\theta_{c,f}$ is the probability that feature $f$ is present when the class is $c$.
+
+### Per-instance latent variable
+
+**Class label** — drawn from the global class distribution:
+
+$$y_i \sim \mathrm{Discrete}(\boldsymbol{\pi}) \quad \forall\; i$$
+
+For labeled instances $y_i$ is constrained to its observed value; for unlabeled instances it
+remains a free latent variable inferred jointly with everything else.
+
+### Observed variables
+
+**Binary features** — conditioned on the instance's class label:
+
+$$x_{i,f} \sim \mathrm{Bernoulli}(\theta_{y_i,\, f}) \quad \forall\; i,\, f$$
+
+All feature values are always observed.
+
+### Full joint distribution
+
+$$p(\boldsymbol{\pi},\,\Theta,\,\mathbf{y},\,\mathbf{X})
+  = p(\boldsymbol{\pi})
+    \prod_{c,f} p(\theta_{c,f})
+    \prod_{i=1}^{N} \left[
+      p(y_i \mid \boldsymbol{\pi})
+      \prod_{f=1}^{F} p(x_{i,f} \mid \theta_{y_i,f})
+    \right]$$
+
+For labeled instances the $y_i$ factor collapses to a point mass at the observed label.
+
+### Posterior inference
+
+Infer.NET runs Expectation Propagation and returns:
+
+- **`Beta[C][F]`** — posterior $\mathrm{Beta}(\alpha', \beta')$ for each $\theta_{c,f}$.
+- **`Dirichlet`** — posterior over $\boldsymbol{\pi}$.
+- **`Discrete[N]`** (optional) — posterior class distribution $p(y_i \mid \mathbf{X})$ for unlabeled instances.
+
+Prediction uses the posterior means of $\boldsymbol{\pi}$ and $\Theta$ in a log-sum Naive Bayes
+scoring rule.
